@@ -78,6 +78,34 @@ Usage:
 ...
 ```
 
+## Tests
+
+### Windows
+
+We use [Pester](https://pester.dev/) to test the installation script. We develop
+using Azure VM running Windows where there is an older version of Pester baked
+in to the image (v3.4).
+
+To ensure tests use Pester v5, configure your `$PROFILE`:
+
+```powershell
+# Clean out legacy module roots (prevents Pester 3.4 autoload)
+$paths = $env:PSModulePath -split ';' | Where-Object {
+    $_ -notlike '*WindowsPowerShell*' -and $_ -notlike '*v1.0*'
+}
+$env:PSModulePath = ($paths -join ';')
+
+# Force Pester 5
+Remove-Module Pester -ErrorAction SilentlyContinue
+Import-Module "$HOME\Documents\PowerShell\Modules\Pester\5.7.1\Pester.psd1" -Force
+```
+
+To run the tests use:
+
+```powershell
+Invoke-Pester -CI
+```
+
 ## Requirements
 
 - **macOS/Linux:** `curl`, `bash`
