@@ -45,6 +45,7 @@ Describe "PairSpaces installer - safe tests (mocked)" -Tag 'safe' {
     Mock Remove-Item { } -Verifiable
     Mock Ensure-InPath { }           # avoid PATH writes
     Mock icacls { } -Verifiable
+    Mock Show-Title { }
   }
 
   AfterEach {
@@ -109,6 +110,7 @@ Describe "Download URL formation from Get-Arch & Get-Version" -Tag 'safe','url' 
     Mock Ensure-InPath { }
     if (-not (Get-Command icacls -CommandType Function -ErrorAction SilentlyContinue)) { function icacls { param([Parameter(ValueFromRemainingArguments=$true)] $args) } }
     Mock icacls { }
+    Mock Show-Title { }
   }
 
   AfterEach { $env:LOCALAPPDATA = $script:oldLocal }
@@ -185,6 +187,7 @@ if ($env:RUN_DESTRUCTIVE_TESTS -eq '1') {
       Mock Invoke-WebRequest { }
       if (-not (Get-Command icacls -CommandType Function -ErrorAction SilentlyContinue)) { function icacls { param([Parameter(ValueFromRemainingArguments=$true)] $args) } }
       Mock icacls { }
+      Mock Show-Title { }
     }
 
     AfterAll {

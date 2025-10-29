@@ -1,0 +1,54 @@
+name: install.pull
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pull_install:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Context
+        run: |
+          $PSVersionTable
+          Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1 | Format-List Name,Version,Path
+
+      - name: Test
+        env:
+          RUN_DESTRUCTIVE_TESTS: '1'
+        run: |
+          Import-Module Pester -MinimumVersion '5.0.0' -Force
+          New-Item -ItemType Directory -Force -Path TestResults | Out-Null
+
+          $config = [PesterConfiguration]::Default
+          $config.Run.Path = @('tests')       # or '.' if your tests stay at repo root
+          $config.Output.Verbosity = 'Normal'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'TestResults/Pester-safe.xml'
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          
+          Invoke-Pester -Configuration $config
+
+      - name: Publish Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-safe-results
+          path: TestResults/Pester-safe.xml
