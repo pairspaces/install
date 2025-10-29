@@ -16,7 +16,108 @@ permissions:
   contents: read
 
 jobs:
-  pull_install:
+  pull_install_nix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Homebrew (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl build-essential procps file git
+          NONINTERACTIVE=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+          "$BREW_BIN" --version
+          # Put brew on PATH for subsequent steps
+          echo "$(/home/linuxbrew/.linuxbrew/bin/brew --prefix)/bin" >> "$GITHUB_PATH"
+          echo "HOMEBREW_PREFIX=$(/home/linuxbrew/.linuxbrew/bin/brew --prefix)" >> "$GITHUB_ENV"
+
+      - name: Locate & export Homebrew (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Prefer Apple Silicon path, then Intel, then fallback
+          if [ -x /opt/homebrew/bin/brew ]; then BREW=/opt/homebrew/bin/brew;
+          elif [ -x /usr/local/bin/brew ]; then BREW=/usr/local/bin/brew;
+          else BREW="$(command -v brew)"; fi
+          "$BREW" --version
+          echo "$("$BREW" --prefix)/bin" >> "$GITHUB_PATH"
+          echo "HOMEBREW_PREFIX=$("$BREW" --prefix)" >> "$GITHUB_ENV"
+
+      - name: Install bats
+        run: |
+          set -euxo pipefail
+          brew update
+          brew install bats-core
+          bats --version
+          brew tap bats-core/bats-core
+          brew install bats-support bats-assert bats-file
+          # Show installed addon paths for debug
+          brew --prefix bats-support
+          brew --prefix bats-assert
+          brew --prefix bats-file
+
+      - name: Run bats tests
+        env:
+          ProgressPreference: SilentlyContinue
+        run: |
+          set -euxo pipefail
+          bats tests/install.bats
+
+  pull_install_verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Homebrew (Ubuntu)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl build-essential procps file git
+          NONINTERACTIVE=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+          "$BREW_BIN" --version
+          # Put brew on PATH for subsequent steps
+          echo "$(/home/linuxbrew/.linuxbrew/bin/brew --prefix)/bin" >> "$GITHUB_PATH"
+          echo "HOMEBREW_PREFIX=$(/home/linuxbrew/.linuxbrew/bin/brew --prefix)" >> "$GITHUB_ENV"
+
+      - name: Install cosign
+        run: |
+          set -euxo pipefail
+          brew update
+          brew install cosign
+          cosign version || true
+
+      - name: Verify binary
+        env:
+          VERIFY_BINARY: "true"
+        run: |
+          set -euxo pipefail
+          BIN_DIR="$(mktemp -d)/bin"
+          mkdir -p "$BIN_DIR"
+          echo "Cosign version:"
+          cosign version || true
+          echo "Running installer with VERIFY_BINARY=true"
+          bash -x ./install.sh -d "$BIN_DIR" | tee install.log
+          echo "---- Installer log ----"
+          cat install.log
+          echo "------------------------"
+          test -x "$BIN_DIR/pair"
+          ls -l "$BIN_DIR/pair"
+
+  pull_install_windows:
     runs-on: windows-latest
     defaults:
       run:
