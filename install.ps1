@@ -218,28 +218,38 @@ function Main {
         [switch]$Uninstall
     )
 
-    if ($Uninstall) {
-        Uninstall-App
+    $oldProgressPreference = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+
+    try {
+        if ($Uninstall) {
+            Uninstall-App
+            return
+        }
+
+        Show-Title "Downloading PairSpaces CLI"
+
+        $arch    = Get-Arch
+        $version = Get-Version
+        $file    = "$name" + "_$version.exe"
+        $url     = "$baseUrl/windows/$arch/$file"
+
+        Ensure-InstallDir
+
+        $downloadPath = "$installDir\$binary"
+        Download-Binary -url $url -outputPath $downloadPath
+
+        Show-Title "Installing PairSpaces CLI" $url
+        Make-Executable $downloadPath
+        Ensure-InPath
+
+        Show-Title "Installation Complete" "$binary installed to $installDir"
+        Write-Host (" Restart your shell and run '${binary} help' to get started.") -ForegroundColor Green
     }
-
-    Show-Title "Downloading PairSpaces CLI"
-
-    $arch    = Get-Arch
-    $version = Get-Version
-    $file    = "$name" + "_$version.exe"
-    $url     = "$baseUrl/windows/$arch/$file"
-
-    Ensure-InstallDir
-
-    $downloadPath = "$installDir\$binary"
-    Download-Binary -url $url -outputPath $downloadPath
-
-    Show-Title "Installing PairSpaces CLI" $url
-    Make-Executable $downloadPath
-    Ensure-InPath
-
-    Show-Title "Installation Complete" "$binary installed to $installDir"
-    Write-Host (" Restart your shell and run '${binary} help' to get started.") -ForegroundColor Green
+    finally {
+        # Always restore original preference
+        $ProgressPreference = $oldProgressPreference
+    }
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
