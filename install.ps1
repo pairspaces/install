@@ -180,7 +180,6 @@ function Uninstall-App {
     }
 
     Show-Title "Uninstallation Complete"
-    exit 0
 }
 
 # =============================================================================
@@ -243,4 +242,6 @@ function Main {
     Write-Host (" Restart your shell and run '${binary} help' to get started.") -ForegroundColor Green
 }
 
-Main @args
+if ($MyInvocation.InvocationName -ne '.') {
+    Main @args
+}
