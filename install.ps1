@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 
 $name       = "pair"
 $binary     = "$name.exe"
-$envName    = "latest"
+$envName    = "build"
 $baseUrl    = "https://downloads.pairspaces.com/$envName"
 $installDir = Join-Path $env:LOCALAPPDATA $name
 $destBin    = "$installDir\$binary"

@@ -7,7 +7,7 @@ set -euo pipefail
 # =============================================================================
 
 NAME="pair"
-ENV="latest"
+ENV="build"
 BASE_URL="https://downloads.pairspaces.com/$ENV"
 INSTALL_DIR="/usr/local/bin"
 VERIFY_BINARY="${VERIFY_BINARY:-false}"
