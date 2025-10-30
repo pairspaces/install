@@ -10,7 +10,7 @@ NAME="pair"
 ENV="latest"
 BASE_URL="https://downloads.pairspaces.com/$ENV"
 INSTALL_DIR="/usr/local/bin"
-VERIFY_CHECKSUM="${VERIFY_CHECKSUM:-false}"
+VERIFY_BINARY="${VERIFY_BINARY:-false}"
 
 # =============================================================================
 # UI Helpers
@@ -91,7 +91,7 @@ process_args() {
         -)
           case "$OPTARG" in
             uninstall) UNINSTALL=true ;;
-            verify) VERIFY_CHECKSUM=true ;;
+            verify) VERIFY_BINARY=true ;;
             *) abort "Unknown long option --$OPTARG" ;;
           esac
           ;;
@@ -134,7 +134,7 @@ download_and_install() {
   text_title "Downloading PairSpaces CLI"
   curl -LO --proto '=https' --tlsv1.2 -sSf "$DOWNLOAD_URL"
 
-  verify_checksum
+  verify_binary
 
   text_title "Installing PairSpaces CLI" "$INSTALL_DIR/$NAME"
   chmod +x "$FILENAME"
@@ -179,21 +179,20 @@ remove_installed_binary() {
 }
 
 # =============================================================================
-# Verify checksum (Linux only)
+# Verify binary (Linux only)
 # =============================================================================
 
-verify_checksum() {
-  if [ "$VERIFY_CHECKSUM" != "true" ] || [ "$OS" != "linux" ]; then
+verify_binary() {
+  if [ "$VERIFY_BINARY" != "true" ] || [ "$OS" != "linux" ]; then
     return 0
   fi
 
-  text_title "Verifying Checksum"
+  text_title "Verifying Binary"
 
-  local checksum_base="${BASE_URL}/pair_${VERSION}_checksums"
+  local binary_base="${BASE_URL}/linux/${ARCH}/pair_${VERSION}"
 
-  curl -sSfO "${checksum_base}.txt"      || abort "Failed to download checksum file"
-  curl -sSfO "${checksum_base}.txt.pem"  || abort "Failed to download PEM certificate"
-  curl -sSfO "${checksum_base}.txt.sig"  || abort "Failed to download signature"
+  curl -sSfO "${binary_base}.pem"  || abort "Failed to download PEM certificate"
+  curl -sSfO "${binary_base}.sig"  || abort "Failed to download signature"
 
   if ! command -v cosign &>/dev/null; then
     text_title "Installing cosign"
@@ -203,20 +202,11 @@ verify_checksum() {
   fi
 
   cosign verify-blob \
-    --certificate "pair_${VERSION}_checksums.txt.pem" \
-    --signature "pair_${VERSION}_checksums.txt.sig" \
-    --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-    --certificate-identity-regexp=".*" \
-    "pair_${VERSION}_checksums.txt" || abort "Checksum file signature invalid"
-
-  local actual
-  actual=$(sha256sum "$FILENAME" | awk '{print $1}')
-  local expected
-  expected=$(grep "linux/$ARCH/$FILENAME" "pair_${VERSION}_checksums.txt" | awk '{print $1}')
-
-  if [ "$actual" != "$expected" ]; then
-    abort "Checksum mismatch: expected $expected, got $actual"
-  fi
+  --certificate "pair_${VERSION}.pem" \
+  --signature "pair_${VERSION}.sig" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp=".*" \
+  "pair_${VERSION}"
 
   echo "The PairSpaces CLI was verified successfully using cosign."
 }
