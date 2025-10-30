@@ -22,11 +22,11 @@ echo That's not an option. Exiting...
 goto end
 
 :install
-PowerShell -NoProfile -ExecutionPolicy Bypass -Command "$installerUrl='https://raw.githubusercontent.com/pairspaces/install/main/install.ps1'; $installerPath=$env:TEMP + '\install.ps1'; Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath; & $installerPath"
+PowerShell -NoProfile -ExecutionPolicy Bypass -Command "$installerUrl='https://raw.githubusercontent.com/pairspaces/install/build/install.ps1'; $installerPath=$env:TEMP + '\install.ps1'; Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath; & $installerPath"
 goto end
 
 :uninstall
-PowerShell -NoProfile -ExecutionPolicy Bypass -Command "$installerUrl='https://raw.githubusercontent.com/pairspaces/install/main/install.ps1'; $installerPath=$env:TEMP + '\install.ps1'; Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath; & $installerPath -Uninstall"
+PowerShell -NoProfile -ExecutionPolicy Bypass -Command "$installerUrl='https://raw.githubusercontent.com/pairspaces/install/build/install.ps1'; $installerPath=$env:TEMP + '\install.ps1'; Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath; & $installerPath -Uninstall"
 goto end
 
 :end
