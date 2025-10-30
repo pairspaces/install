@@ -80,6 +80,15 @@ Usage:
 
 ## Tests
 
+### Linux, macOS
+
+We use [Bats](https://bats-core.readthedocs.io/en/stable/) to test the installation
+script. To run the tests, use:
+
+```sh
+bats tests/install.bats
+```
+
 ### Windows
 
 We use [Pester](https://pester.dev/) to test the installation script. We develop
@@ -100,7 +109,7 @@ Remove-Module Pester -ErrorAction SilentlyContinue
 Import-Module "$HOME\Documents\PowerShell\Modules\Pester\5.7.1\Pester.psd1" -Force
 ```
 
-To run the tests use:
+To run the tests, use:
 
 ```powershell
 Invoke-Pester -CI
