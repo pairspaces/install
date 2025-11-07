@@ -230,6 +230,87 @@ if ($env:RUN_DESTRUCTIVE_TESTS -eq '1') {
       (($afterRaw -split ';') | Where-Object { $_ -eq $script:expectedDir }).Count | Should -Be 1
     }
 
+    It "Ensure-InPath maintains Path integrity" {
+      #
+      # Start from a known good PATH for this test
+      #
+      $regw = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+      try {
+        $regw.SetValue(
+          "Path",
+          '%SystemRoot%\System32;C:\Tools',
+          [Microsoft.Win32.RegistryValueKind]::ExpandString
+        )
+      }
+      finally {
+        if ($regw) { $regw.Close() }
+      }
+
+      if (Get-Command Refresh-Environment -ErrorAction SilentlyContinue) {
+        Refresh-Environment
+      }
+
+      #
+      # Run the real Ensure-InPath
+      #
+      Ensure-InPath
+
+      #
+      # Read back PATH (raw, non-expanded) from HKCU
+      #
+      $reg = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
+      try {
+        $afterRaw = $reg.GetValue(
+          "Path",
+          "",
+          [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+        )
+      }
+      finally {
+        if ($reg) { $reg.Close() }
+      }
+
+      #
+      # Normalize into clean segments: split on ';', trim, drop empties
+      #
+      $segments = @()
+      if ($afterRaw) {
+        foreach ($part in ($afterRaw -split ';')) {
+          $trimmed = $part.Trim()
+          if ($trimmed.Length -gt 0) {
+            $segments += $trimmed
+          }
+        }
+      }
+
+      #
+      # 1) Should be at least one segment
+      #
+      if ($segments.Count -lt 1) {
+        throw "PATH segments unexpectedly empty after Ensure-InPath."
+      }
+
+      #
+      # 2) Expected install dir should appear exactly once
+      #
+      $countExpected = 0
+      foreach ($seg in $segments) {
+        if ($seg -eq $script:expectedDir) {
+          $countExpected++
+        }
+      }
+      $countExpected | Should -Be 1
+
+      #
+      # 3) No glued segments like '...WindowsAppsC:\Users\...'
+      #    i.e. no segment with two drive roots stuck together.
+      #
+      foreach ($seg in $segments) {
+        $isGlued = $seg -match '[A-Za-z]:\\.*[A-Za-z]:\\'
+        $isGlued | Should -BeFalse
+      }
+    }
+
     It "Uninstall-App removes installDir from PATH and deletes directory" {
   # Ensure the installer uses exactly the path we assert against
   Set-Variable -Name installDir -Value $script:expectedDir -Scope Global
