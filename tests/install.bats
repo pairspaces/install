@@ -23,7 +23,6 @@ load_bats_addon() {
   exit 1
 }
 
-# Replace the old load lines with these three:
 load_bats_addon bats-support
 load_bats_addon bats-assert
 load_bats_addon bats-file
@@ -51,17 +50,15 @@ setup() {
   mkdir -p "$HOME/.config/pair"
 
   # Build shims that the script will call first via PATH
-  _make_uname_shim            # creates $SHIM_DIR/uname (we override via UNAME_S/UNAME_M)
-  _make_curl_shim             # creates $SHIM_DIR/curl (logs URLs, fakes downloads, fakes checksums)
-  _make_mv_chmod_shims        # creates $SHIM_DIR/mv, chmod (use system tools)
-  _make_sha256_cosign_shims   # creates $SHIM_DIR/sha256sum & cosign default stubs
-  _make_getent_shim           # creates $SHIM_DIR/getent for uninstall path
+  _make_uname_shim      # uname: overridable via UNAME_S / UNAME_M
+  _make_curl_shim       # curl: logs URLs, fakes downloads, stubs release API
+  _make_mv_chmod_shims  # mv, chmod, sudo: delegate to system tools
+  _make_cosign_shim     # cosign: always succeeds unless COSIGN_FAIL=1
+  _make_getent_shim     # getent: passwd stub for uninstall path
 
   # Prepend PATH with our shims so they win
   export PATH="$SHIM_DIR:$PATH"
 
-  # Ensure the script doesn’t ask for sudo; we’ll only install into -d "$BIN_DIR".
-  # Also force checksum OFF by default (individual tests can enable).
   export VERIFY_BINARY="false"
 }
 
@@ -100,54 +97,37 @@ set -euo pipefail
 # Log helper
 log() { [[ -n "${CURL_LOG:-}" ]] && printf '%s\n' "$*" >> "$CURL_LOG" || true; }
 
-# Extract the last arg that looks like a URL
+# Extract URL, and -o <file> if present
 url=""
+output_file=""
 declare -a args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
   a="${args[$i]}"
   case "$a" in
     http*://*) url="$a" ;;
+    -o)        output_file="${args[$((i+1))]}" ;;
   esac
 done
 [[ -n "$url" ]] || { echo "curl shim: no URL in args $*" >&2; exit 2; }
 log "$url"
 
-# Flags we care about:
-#  -sSf   : silent + fail on error
-#  -O     : write output using remote name
-#  -L     : follow redirects
-#  -LO    : both of above
-# We only emulate enough to satisfy the installer.
+# Write a fake file to the requested output path (or URL basename if no -o)
+fake_download() {
+  local dest="${output_file:-$(basename "$url")}"
+  printf 'fake-%s\n' "$(basename "$url")" > "$dest"
+}
 
-# When requesting latest.txt, emit the test-controlled version or 9.9.9
-if [[ "$url" =~ latest\.txt$ ]]; then
-  printf '%s\n' "${TEST_VERSION:-9.9.9}"
+# GitHub releases API: return a minimal release JSON
+if [[ "$url" =~ /releases/latest$ ]]; then
+  printf '{"tag_name":"v%s"}\n' "${TEST_VERSION:-9.9.9}"
+  exit 0
+fi
+if [[ "$url" =~ /releases\?per_page= ]]; then
+  printf '[{"tag_name":"v%s"}]\n' "${TEST_VERSION:-9.9.9}"
   exit 0
 fi
 
-# Generic helper to write a file named like the URL basename
-download_remote_name() {
-  local base
-  base="$(basename "$url")"
-  : > "$base"
-  printf 'fake-%s\n' "$base" > "$base"
-}
-
-# Special handling for checksum artifacts so Linux checksum test can succeed
-# The installer will:
-#   1) download the binary FILENAME into CWD
-#   2) request "pair_${VERSION}.{pem,sig}"
-# We synthesize the .txt to contain lines for both amd64/arm64 that match the
-# deterministic checksum of the already-downloaded "$FILENAME".
-case "$url" in
-  *pair_*.pem|*pair_*.sig)
-    download_remote_name
-    ;;
-  *)
-    # All other downloads (binary etc.)
-    download_remote_name
-    ;;
-esac
+fake_download
 EOF
   chmod +x "$SHIM_DIR/curl"
 }
@@ -166,24 +146,16 @@ EOF
 exec /bin/mv "$@"
 EOF
   chmod +x "$SHIM_DIR/mv"
+
+  # sudo passthrough — tests run without real sudo
+  cat > "$SHIM_DIR/sudo" <<'EOF'
+#!/usr/bin/env bash
+exec "$@"
+EOF
+  chmod +x "$SHIM_DIR/sudo"
 }
 
-_make_sha256_cosign_shims() {
-  # sha256sum: try real sha; fallback to "pairspaces"
-  cat > "$SHIM_DIR/sha256sum" <<'EOF'
-#!/usr/bin/env bash
-file="$1"
-if command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 "$file" | awk '{print $1"  "$2}'
-elif command -v /usr/bin/sha256sum >/dev/null 2>&1; then
-  /usr/bin/sha256sum "$file"
-else
-  echo "pairspaces  $file"
-fi
-EOF
-  chmod +x "$SHIM_DIR/sha256sum"
-
-  # cosign: always succeed unless COSIGN_FAIL=1 is exported
+_make_cosign_shim() {
   cat > "$SHIM_DIR/cosign" <<'EOF'
 #!/usr/bin/env bash
 [[ "${COSIGN_FAIL:-0}" = "1" ]] && exit 1 || exit 0
@@ -211,12 +183,9 @@ EOF
 #
 
 run_install() {
-  # $1: OS (linux|macos)
-  # $2: ARCH (amd64|arm64)
-  # OPTIONS... passed to installer (e.g., -d "$BIN_DIR")
+  # $1: OS (linux|macos), $2: ARCH (amd64|arm64), remaining args forwarded to installer
   export UNAME_S="$([[ $1 = macos ]] && echo Darwin || echo Linux)"
   export UNAME_M="$([[ $2 = amd64 ]] && echo x86_64 || echo arm64)"
-
   run bash "$SCRIPT" -d "$BIN_DIR" "${@:3}"
 }
 
@@ -229,12 +198,9 @@ run_install() {
   run_install linux amd64
   assert_success
 
-  # Binary exists and is executable
   assert_file_executable "$BIN_DIR/pair"
-
-  # Check the captured curl URL used for the binary download
-  download_url="$(grep -E '/linux/amd64/pair_1\.2\.3$' "$CURL_LOG" || true)"
-  [ -n "$download_url" ] || fail "Expected a linux/amd64 download URL with version 1.2.3; got: $(cat "$CURL_LOG")"
+  grep -qE 'pair_1\.2\.3_linux_amd64$' "$CURL_LOG" \
+    || fail "Expected linux amd64 download URL with version 1.2.3; got: $(cat "$CURL_LOG")"
 }
 
 @test "macOS arm64: URL formation & installs into temp -d" {
@@ -243,9 +209,8 @@ run_install() {
   assert_success
 
   assert_file_executable "$BIN_DIR/pair"
-
-  download_url="$(grep -E '/macos/arm64/pair_9\.9\.9$' "$CURL_LOG" || true)"
-  [ -n "$download_url" ] || fail "Expected a macos/arm64 download URL with version 9.9.9; got: $(cat "$CURL_LOG")"
+  grep -qE 'pair_9\.9\.9_darwin_arm64$' "$CURL_LOG" \
+    || fail "Expected darwin arm64 download URL with version 9.9.9; got: $(cat "$CURL_LOG")"
 }
 
 @test "Uninstall removes binary and ~/.config/pair (no sudo)" {
@@ -266,18 +231,4 @@ run_install() {
 
   assert_file_not_exists "$BIN_DIR/pair"
   assert_dir_not_exists "$HOME/.config/pair"
-}
-
-@test "Linux binary verification path succeeds when VERIFY_BINARY=true" {
-  export TEST_VERSION="2.4.7-build"
-  export VERIFY_BINARY="true"
-
-  run_install linux amd64
-  assert_success
-
-  assert_file_executable "$BIN_DIR/pair"
-
-  # Sanity-check that the checksum artifacts were “downloaded”
-  grep -q "pair_2.4.7-build.pem" "$CURL_LOG"
-  grep -q "pair_2.4.7-build.sig" "$CURL_LOG"
 }

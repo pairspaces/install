@@ -7,8 +7,8 @@ set -euo pipefail
 # =============================================================================
 
 NAME="pair"
-ENV="latest"
-BASE_URL="https://downloads.pairspaces.com/$ENV"
+GITHUB_REPO="pairspaces/install"
+RELEASES_API="https://api.github.com/repos/${GITHUB_REPO}/releases"
 INSTALL_DIR="/usr/local/bin"
 VERIFY_BINARY="${VERIFY_BINARY:-false}"
 
@@ -51,7 +51,7 @@ detect_platform() {
 
   case "$OS" in
     Linux) OS="linux" ;;
-    Darwin) OS="macos" ;;
+    Darwin) OS="darwin" ;;
     *) abort "Unsupported OS: $OS" ;;
   esac
 }
@@ -61,9 +61,19 @@ detect_platform() {
 # =============================================================================
 
 resolve_version_and_url() {
-  VERSION=$(curl -sSf "${BASE_URL}/latest.txt" | tr -d '\r\n') || abort "Failed to fetch latest version"
-  FILENAME="${NAME}_${VERSION}"
-  DOWNLOAD_URL="${BASE_URL}/${OS}/${ARCH}/${FILENAME}"
+  local response
+  # /releases/latest returns only stable releases; fall back to /releases?per_page=1
+  # which includes pre-releases, so the script works before a stable release exists.
+  response=$(curl -sSf "${RELEASES_API}/latest" 2>/dev/null) || \
+    response=$(curl -sSf "${RELEASES_API}?per_page=1") || \
+    abort "Failed to fetch latest release"
+
+  VERSION=$(echo "$response" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+  [ -n "$VERSION" ] || abort "Failed to parse release version"
+
+  local version_stripped="${VERSION#v}"
+  FILENAME="pair_${version_stripped}_${OS}_${ARCH}"
+  DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${FILENAME}"
 }
 
 # =============================================================================
@@ -78,7 +88,7 @@ process_args() {
       case $opt in
         u)
           INSTALL_DIR="$HOME/.local/bin"
-          [ "$OS" = "macos" ] && INSTALL_DIR="$HOME/bin"
+          [ "$OS" = "darwin" ] && INSTALL_DIR="$HOME/bin"
 
           if [ ! -d "$INSTALL_DIR" ] || [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
             abort "User bin directory '$INSTALL_DIR' doesn't exist or isn't in PATH."
@@ -103,28 +113,6 @@ process_args() {
 }
 
 # =============================================================================
-# Permissions Check
-# =============================================================================
-
-check_install_permissions() {
-  if [ ! -w "$INSTALL_DIR" ]; then
-    echo ""
-    echo "This script needs sudo to write to: $INSTALL_DIR"
-    read -rp "Do you want to proceed with sudo? [Y/n] " answer
-    case "${answer:-Y}" in
-      [Yy]* )
-        echo ""
-        exec sudo "$0" "$@"
-        ;;
-      * )
-        echo "Aborted by user."
-        exit 1
-        ;;
-    esac
-  fi
-}
-
-# =============================================================================
 # Install
 # =============================================================================
 
@@ -132,13 +120,18 @@ download_and_install() {
   cd "$(mktemp -d)"
 
   text_title "Downloading PairSpaces CLI"
-  curl -LO --proto '=https' --tlsv1.2 -sSf "$DOWNLOAD_URL"
+  curl -L --proto '=https' --tlsv1.2 -sSf "$DOWNLOAD_URL" -o "$FILENAME"
 
   verify_binary
 
   text_title "Installing PairSpaces CLI" "$INSTALL_DIR/$NAME"
-  chmod +x "$FILENAME"
-  mv "$FILENAME" "$INSTALL_DIR/$NAME"
+  if [ -w "$INSTALL_DIR" ]; then
+    mv "$FILENAME" "$INSTALL_DIR/$NAME"
+    chmod +x "$INSTALL_DIR/$NAME"
+  else
+    sudo mv "$FILENAME" "$INSTALL_DIR/$NAME"
+    sudo chmod +x "$INSTALL_DIR/$NAME"
+  fi
 
   text_title "Installation Complete" "Run '$NAME help' to get started"
   echo ""
@@ -163,7 +156,11 @@ remove_installed_binary() {
   local config_dir="$real_home/.config/$NAME"
 
   if [ -f "$bin_path" ]; then
-    rm -f "$bin_path"
+    if [ -w "$INSTALL_DIR" ]; then
+      rm -f "$bin_path"
+    else
+      sudo rm -f "$bin_path"
+    fi
     echo "Removed $bin_path"
   else
     echo "Binary not found at $bin_path (already removed?)"
@@ -178,9 +175,9 @@ remove_installed_binary() {
   exit 0
 }
 
-# =============================================================================
-# Verify binary (Linux only)
-# =============================================================================
+# =====================================================================================
+# Verify binary (Linux only — macOS and Windows binaries are signed by Apple/Microsoft)
+# =====================================================================================
 
 verify_binary() {
   if [ "$VERIFY_BINARY" != "true" ] || [ "$OS" != "linux" ]; then
@@ -189,24 +186,28 @@ verify_binary() {
 
   text_title "Verifying Binary"
 
-  local binary_base="${BASE_URL}/linux/${ARCH}/pair_${VERSION}"
+  local base_url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}"
 
-  curl -sSfO "${binary_base}.pem"  || abort "Failed to download PEM certificate"
-  curl -sSfO "${binary_base}.sig"  || abort "Failed to download signature"
+  curl -L --proto '=https' --tlsv1.2 -sSfO "${base_url}/${FILENAME}.pem" || abort "Failed to download PEM certificate"
+  curl -L --proto '=https' --tlsv1.2 -sSfO "${base_url}/${FILENAME}.sig" || abort "Failed to download signature"
 
   if ! command -v cosign &>/dev/null; then
     text_title "Installing cosign"
     curl -LO https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
     chmod +x cosign-linux-amd64
-    mv cosign-linux-amd64 /usr/local/bin/cosign
+    if [ -w /usr/local/bin ]; then
+      mv cosign-linux-amd64 /usr/local/bin/cosign
+    else
+      sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+    fi
   fi
 
   cosign verify-blob \
-  --certificate "pair_${VERSION}.pem" \
-  --signature "pair_${VERSION}.sig" \
+  --certificate "${FILENAME}.pem" \
+  --signature "${FILENAME}.sig" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   --certificate-identity-regexp=".*" \
-  "pair_${VERSION}"
+  "$FILENAME"
 
   echo "The PairSpaces CLI was verified successfully using cosign."
 }
@@ -218,13 +219,11 @@ verify_binary() {
 main() {
   detect_platform
   process_args "$@"
-  
+
   if [ "$UNINSTALL" = true ]; then
-    check_install_permissions "$@"
     remove_installed_binary
   fi
 
-  check_install_permissions "$@"
   resolve_version_and_url
   download_and_install
 }
