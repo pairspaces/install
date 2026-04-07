@@ -27,7 +27,7 @@ Describe "PairSpaces installer - safe tests (mocked)" -Tag 'safe' {
     if (-not (Test-Path -LiteralPath $installer)) { throw "Missing installer at: $installer" }
     . $installer
 
-    foreach ($fn in 'Ensure-InstallDir','Make-Executable','Ensure-InPath','Get-Version','Get-Arch','Download-Binary') {
+    foreach ($fn in 'Ensure-InstallDir','Make-Executable','Ensure-InPath','Get-LatestRelease','Get-Arch','Download-Binary') {
       if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         throw "Failed to load install.ps1: function '$fn' not found."
       }
@@ -39,7 +39,7 @@ Describe "PairSpaces installer - safe tests (mocked)" -Tag 'safe' {
     }
 
     # Mocks
-    Mock Invoke-RestMethod { "1.2.3" }
+    Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = "v1.2.3" } }
     Mock Invoke-WebRequest { } -Verifiable
     Mock New-Item { } -Verifiable
     Mock Remove-Item { } -Verifiable
@@ -56,8 +56,9 @@ Describe "PairSpaces installer - safe tests (mocked)" -Tag 'safe' {
     Get-Arch | Should -BeIn @('amd64','arm64')
   }
 
-  It "Get-Version uses Invoke-RestMethod and trims result" {
-    Get-Version | Should -BeExactly '1.2.3'
+  It "Get-LatestRelease uses Invoke-RestMethod and returns a release object" {
+    $release = Get-LatestRelease
+    $release.tag_name | Should -BeExactly 'v1.2.3'
     Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -Exactly
   }
 
@@ -78,9 +79,9 @@ Describe "PairSpaces installer - safe tests (mocked)" -Tag 'safe' {
   }
 
   It "Main flow downloads the correct filename and calls Ensure-InPath" {
-    Mock Invoke-RestMethod { "0.9.0" }
+    Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = "v0.9.0" } }
     Main
-    Assert-MockCalled Invoke-WebRequest -Times 1 -ParameterFilter { $Uri -match '/windows/(amd64|arm64)/pair_0\.9\.0\.exe$' }
+    Assert-MockCalled Invoke-WebRequest -Times 1 -ParameterFilter { $Uri -match 'pair_0\.9\.0_windows_(amd64|arm64)\.exe$' }
     Assert-MockCalled Ensure-InPath -Times 1
     Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -Exactly
   }
@@ -103,6 +104,7 @@ Describe "Download URL formation from Get-Arch & Get-Version" -Tag 'safe','url' 
     . $installer
 
     $script:CapturedCalls = @()
+    Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = "v0.0.0" } }  # prevent real API calls
     Mock Invoke-WebRequest {
       param($Uri, $OutFile, $UseBasicParsing)
       $script:CapturedCalls += [pscustomobject]@{ Uri = $Uri; OutFile = $OutFile }
@@ -122,14 +124,14 @@ Describe "Download URL formation from Get-Arch & Get-Version" -Tag 'safe','url' 
 
   foreach ($case in $cases) {
     It "Builds URL for Arch=$($case.Arch) Version=$($case.Version)" {
-      Mock Get-Arch    { $case.Arch }
-      Mock Get-Version { $case.Version }
+      Mock Get-Arch          { $case.Arch }
+      Mock Get-LatestRelease { [pscustomobject]@{ tag_name = "v$($case.Version)" } }
 
       Main
 
       $script:CapturedCalls.Count | Should -Be 1
 
-      $expectedUrl = "$baseUrl/windows/$($case.Arch)/$($name)_$($case.Version).exe"
+      $expectedUrl = "https://github.com/$githubRepo/releases/download/v$($case.Version)/pair_$($case.Version)_windows_$($case.Arch).exe"
       $script:CapturedCalls[0].Uri | Should -BeExactly $expectedUrl
 
       # Compare normalized string paths; file need not exist
@@ -183,7 +185,7 @@ if ($env:RUN_DESTRUCTIVE_TESTS -eq '1') {
       . $installer  # re-dot-source so $installDir recomputes with new env
 
       # keep network/ACL safe
-      Mock Invoke-RestMethod { "1.0.0" }
+      Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = "v1.0.0" } }
       Mock Invoke-WebRequest { }
       if (-not (Get-Command icacls -CommandType Function -ErrorAction SilentlyContinue)) { function icacls { param([Parameter(ValueFromRemainingArguments=$true)] $args) } }
       Mock icacls { }

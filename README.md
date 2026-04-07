@@ -4,62 +4,40 @@ The PairSpaces CLI lets you interact with [PairSpaces](https://pairspaces.com) f
 
 ## Installation
 
-### macOS / Linux
-
-Run this command in your terminal:
+### macOS / Linux / Windows (WSL)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pairspaces/install/main/install.sh | bash
+curl -fsSL https://get.pairspaces.io/install.sh | bash
 ```
-
-You may need `sudo` to install into `/usr/local/bin`.
 
 #### Optional flags:
 - `-u`: Install to your user bin directory (`~/.local/bin` on Linux, `~/bin` on macOS)
 - `-d <dir>`: Install to a specific directory
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pairspaces/install/main/install.sh | bash -s -- -u
+curl -fsSL https://get.pairspaces.io/install.sh | bash -s -- -u
 ```
 
 ### Windows (PowerShell)
 
-Run these PowerShell commands:
-
 ```powershell
-$installerUrl = "https://raw.githubusercontent.com/pairspaces/install/main/install.bat"
-$installerPath = "$env:USERPROFILE\Downloads\install_pair.bat"
-Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
-& $installerPath
+irm https://get.pairspaces.io/install.ps1 | iex
 ```
-
-Alternatively, run these Powershell commands:
-
-```
-cd "$env:USERPROFILE\Downloads"
-curl https://raw.githubusercontent.com/pairspaces/install/main/install.bat -o install_pair.bat
-.\install_pair.bat
-```
-
-Choose the `Install` option. The script installs the CLI to `%USERPROFILE%\AppData\Local\pair\pair.exe` and adds that directory to your user `PATH`.
 
 ## Uninstalling PairSpaces CLI
 
-### macOS / Linux
-
-Run the same `install.sh` script with the `uninstall` flag:
+### macOS / Linux / Windows (WSL)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pairspaces/install/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://get.pairspaces.io/install.sh | bash -s -- --uninstall
 ```
 
-This will remove the installed binary from the target directory and delete config files in `~/.config/pair/`.
+### Windows (PowerShell)
 
-### Windows
-
-Whether you downloaded `install_pair.bat` using `Invoke-WebRequest` or using cURL, run the `install_pair.bat` script and choose `Uninstall`.
-
-This will remove the installed binary, remove the install directory from your `PATH`, and delete `%LOCALAPPDATA%\pair` and its contents.
+```powershell
+> $script = Invoke-RestMethod https://get.pairspaces.io/install.ps1
+> & ([scriptblock]::Create($script)) -Uninstall
+```
 
 ## Testing Installation
 
@@ -67,23 +45,11 @@ This will remove the installed binary, remove the install directory from your `P
 pair help
 ```
 
-You should see the CLI's usage output:
-
-```
-PairSpaces is for teams that work together. Learn more at https://pairspaces.com.
-
-Usage:
-  pair [command]
-
-...
-```
-
 ## Tests
 
 ### Linux, macOS
 
-We use [Bats](https://bats-core.readthedocs.io/en/stable/) to test the installation
-script. To run the tests, use:
+We use [Bats](https://bats-core.readthedocs.io/en/stable/) to test the installation script:
 
 ```sh
 bats tests/install.bats
@@ -91,11 +57,7 @@ bats tests/install.bats
 
 ### Windows
 
-We use [Pester](https://pester.dev/) to test the installation script. We develop
-using Azure VM running Windows where there is an older version of Pester baked
-in to the image (v3.4).
-
-To ensure tests use Pester v5, configure your `$PROFILE`:
+We use [Pester](https://pester.dev/) to test the installation script. To ensure tests use Pester v5, configure your `$PROFILE`:
 
 ```powershell
 # Clean out legacy module roots (prevents Pester 3.4 autoload)
@@ -108,8 +70,6 @@ $env:PSModulePath = ($paths -join ';')
 Remove-Module Pester -ErrorAction SilentlyContinue
 Import-Module "$HOME\Documents\PowerShell\Modules\Pester\5.7.1\Pester.psd1" -Force
 ```
-
-To run the tests, use:
 
 ```powershell
 Invoke-Pester -CI

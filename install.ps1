@@ -12,8 +12,8 @@ $ErrorActionPreference = "Stop"
 
 $name       = "pair"
 $binary     = "$name.exe"
-$envName    = "latest"
-$baseUrl    = "https://downloads.pairspaces.com/$envName"
+$githubRepo = "pairspaces/install"
+$releasesApi = "https://api.github.com/repos/$githubRepo/releases"
 $installDir = Join-Path $env:LOCALAPPDATA $name
 $destBin    = "$installDir\$binary"
 
@@ -50,13 +50,12 @@ function Get-Arch {
     else { Show-Error "Unsupported architecture: $type" }
 }
 
-function Get-Version {
-    $versionUrl = "$baseUrl/latest.txt"
-    Info "Fetching latest version from $versionUrl"
+function Get-LatestRelease {
+    Info "Fetching latest release from $releasesApi/latest"
     try {
-        return (Invoke-RestMethod -Uri $versionUrl).Trim()
+        return Invoke-RestMethod -Uri "$releasesApi/latest"
     } catch {
-        Show-Error "Failed to fetch latest.txt from $versionUrl"
+        Show-Error "Failed to fetch latest release"
     }
 }
 
@@ -172,7 +171,7 @@ function Uninstall-App {
         Info "Failed to update PATH during uninstall: $($_.Exception.Message)"
     }
 
-    # Remove directory
+    # Remove config directory
     $configDir = Join-Path $env:LOCALAPPDATA "pair"
     if (Test-Path $configDir) {
         Remove-Item -Path $configDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -230,24 +229,24 @@ function Main {
         Show-Title "Downloading PairSpaces CLI"
 
         $arch    = Get-Arch
-        $version = Get-Version
-        $file    = "$name" + "_$version.exe"
-        $url     = "$baseUrl/windows/$arch/$file"
+        $release = Get-LatestRelease
+        $version = $release.tag_name                    # e.g. "v1.2.3"
+        $versionStripped = $version -replace '^v', ''  # e.g. "1.2.3"
+        $file    = "pair_${versionStripped}_windows_${arch}.exe"
+        $url     = "https://github.com/$githubRepo/releases/download/$version/$file"
 
         Ensure-InstallDir
 
-        $downloadPath = "$installDir\$binary"
-        Download-Binary -url $url -outputPath $downloadPath
+        Download-Binary -url $url -outputPath $destBin
 
-        Show-Title "Installing PairSpaces CLI" $url
-        Make-Executable $downloadPath
+        Show-Title "Installing PairSpaces CLI" $destBin
+        Make-Executable $destBin
         Ensure-InPath
 
         Show-Title "Installation Complete" "$binary installed to $installDir"
         Write-Host (" Restart your shell and run '${binary} help' to get started.") -ForegroundColor Green
     }
     finally {
-        # Always restore original preference
         $ProgressPreference = $oldProgressPreference
     }
 }
